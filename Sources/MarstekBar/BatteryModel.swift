@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 struct Snapshot {
     let soc: Int
@@ -37,12 +37,20 @@ final class BatteryModel: ObservableObject {
     private let queue = DispatchQueue(label: "marstekbar.poll")
     private var timer: Timer?
     private var failures = 0 // touched only on `queue`
+    private var isPolling = false // touched only on the main thread
 
     init() {
         host = UserDefaults.standard.string(forKey: Self.hostKey)
         deviceName = UserDefaults.standard.string(forKey: Self.deviceKey) ?? "Marstek"
         timer = Timer.scheduledTimer(withTimeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
             self?.refresh()
+        }
+        timer?.tolerance = 5
+        // Timers do not fire right after sleep; wait a little for the network to come back.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) { self?.refresh() }
         }
         refresh()
     }
@@ -89,6 +97,9 @@ final class BatteryModel: ObservableObject {
 
     func refresh() {
         now = Date()
+        // One poll at a time: queued polls would hit the device back to back.
+        guard !isPolling else { return }
+        isPolling = true
         let knownHost = host
         queue.async { [weak self] in self?.poll(knownHost: knownHost) }
     }
@@ -100,12 +111,17 @@ final class BatteryModel: ObservableObject {
 
             // Discover on first run, or re-discover after repeated failures (IP may have changed).
             if target == nil || failures >= 3 {
-                let reply = try client.request("Marstek.GetDevice",
-                                               params: ["ble_mac": "0"],
-                                               hosts: MarstekClient.broadcastAddresses())
-                target = reply.sender
-                discoveredName = reply.result["device"] as? String
-                Thread.sleep(forTimeInterval: 1)
+                do {
+                    let reply = try client.request("Marstek.GetDevice",
+                                                   params: ["ble_mac": "0"],
+                                                   hosts: MarstekClient.broadcastAddresses())
+                    target = reply.sender
+                    discoveredName = reply.result["device"] as? String
+                    Thread.sleep(forTimeInterval: 1)
+                } catch {
+                    // Broadcast may be blocked while the cached address still works.
+                    guard knownHost != nil else { throw error }
+                }
             }
             guard let ip = target, !ip.isEmpty else {
                 throw MarstekError(message: "Батарею не знайдено в мережі")
@@ -137,6 +153,7 @@ final class BatteryModel: ObservableObject {
             failures += 1
             let text = error.localizedDescription
             DispatchQueue.main.async {
+                self.isPolling = false
                 self.lastError = text
                 self.now = Date()
             }
@@ -144,6 +161,7 @@ final class BatteryModel: ObservableObject {
     }
 
     private func apply(_ snapshot: Snapshot, host: String, deviceName: String?) {
+        isPolling = false
         self.snapshot = snapshot
         lastError = nil
         now = Date()

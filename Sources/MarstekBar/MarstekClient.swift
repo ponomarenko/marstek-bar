@@ -52,15 +52,22 @@ final class MarstekClient {
         let capacity = buffer.count
 
         for _ in 0..<2 {
+            var sent = false
             for host in hosts {
                 guard let dest = Self.address(host, port: port) else { continue }
-                _ = payload.withUnsafeBytes { raw in
+                let n = payload.withUnsafeBytes { raw in
                     withUnsafePointer(to: dest) {
                         $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                             sendto(fd, raw.baseAddress, raw.count, 0, $0, addrLen)
                         }
                     }
                 }
+                if n >= 0 { sent = true }
+            }
+            // Nothing left the machine: no network, or Local Network access is denied.
+            guard sent else {
+                throw MarstekError(message: "Немає доступу до локальної мережі. "
+                    + "Перевірте з'єднання та дозвіл у Системних параметрах")
             }
 
             let deadline = Date().addingTimeInterval(timeout)
