@@ -47,12 +47,12 @@ struct DetailView: View {
             HStack(alignment: .firstTextBaseline) {
                 Text(model.deviceName).font(.headline)
                 Spacer()
-                Text(model.title).font(.title2.monospacedDigit().weight(.semibold))
+                Text(model.socText).font(.title2.monospacedDigit().weight(.semibold))
             }
 
             if let snapshot = model.snapshot {
                 VStack(spacing: 4) {
-                    row("Mode", snapshot.mode)
+                    row("Status", state(of: snapshot))
                     row("Backup output", watts(snapshot.offgridPower))
                     row("Grid port", watts(snapshot.ongridPower))
                     if let remaining = snapshot.remainingWh, let rated = snapshot.ratedWh {
@@ -66,10 +66,17 @@ struct DetailView: View {
                     }
                 }
 
-                if model.history.count > 1 {
-                    Sparkline(values: model.history.map { Double($0.soc) })
+                if let first = model.history.first, let last = model.history.last, model.history.count > 1 {
+                    Sparkline(points: model.history)
                         .stroke(Color.accentColor, lineWidth: 1.5)
                         .frame(height: 36)
+                    HStack {
+                        Text(first.date.formatted(date: .omitted, time: .shortened))
+                        Spacer()
+                        Text(last.date.formatted(date: .omitted, time: .shortened))
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                 }
 
                 Text(statusLine(for: snapshot))
@@ -101,6 +108,7 @@ struct DetailView: View {
         }
         .padding(14)
         .frame(width: 290)
+        .background(Glass())
     }
 
     private func row(_ title: LocalizedStringKey, _ value: String) -> some View {
@@ -109,6 +117,13 @@ struct DetailView: View {
             Spacer()
             Text(value).monospacedDigit()
         }
+    }
+
+    private func state(of snapshot: Snapshot) -> String {
+        let power = Int(abs(snapshot.netPower).rounded())
+        if snapshot.isCharging { return String(localized: "Charging \(power) W") }
+        if snapshot.isDischarging { return String(localized: "Discharging \(power) W") }
+        return String(localized: "Idle")
     }
 
     private func watts(_ value: Double) -> String {
@@ -124,20 +139,39 @@ struct DetailView: View {
     }
 }
 
-/// State-of-charge history drawn on a fixed 0–100 scale.
+/// State-of-charge history drawn on a fixed 0–100 scale, spaced by time so gaps stay visible.
 struct Sparkline: Shape {
-    let values: [Double]
+    let points: [HistoryPoint]
 
     func path(in rect: CGRect) -> Path {
         var path = Path()
-        guard values.count > 1 else { return path }
-        let step = rect.width / CGFloat(values.count - 1)
-        for (index, value) in values.enumerated() {
-            let clamped = min(max(value, 0), 100)
-            let point = CGPoint(x: rect.minX + CGFloat(index) * step,
+        guard let start = points.first?.date, let end = points.last?.date, end > start else { return path }
+        let span = end.timeIntervalSince(start)
+        for (index, item) in points.enumerated() {
+            let clamped = Double(min(max(item.soc, 0), 100))
+            let point = CGPoint(x: rect.minX + rect.width * CGFloat(item.date.timeIntervalSince(start) / span),
                                 y: rect.maxY - rect.height * CGFloat(clamped / 100))
             if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
         }
         return path
+    }
+}
+
+/// Translucent popover background: blurs whatever is behind the window.
+struct Glass: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .sidebar
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        // The MenuBarExtra panel paints its own opaque background over the blur.
+        DispatchQueue.main.async {
+            view.window?.isOpaque = false
+            view.window?.backgroundColor = .clear
+        }
     }
 }

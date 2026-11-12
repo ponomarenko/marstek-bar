@@ -1,4 +1,8 @@
-"Mode" = "Режим";
+"Status" = "Стан";
+"Charging %lld W" = "Заряджається %lld Вт";
+"Discharging %lld W" = "Розряджається %lld Вт";
+"Idle" = "Простій";
+"Battery is low: %lld%%" = "Низький заряд батареї: %lld%%";
 "Backup output" = "Резервний вихід";
 "Grid port" = "Мережевий порт";
 "Energy" = "Енергія";

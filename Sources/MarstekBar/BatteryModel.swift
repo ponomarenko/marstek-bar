@@ -1,8 +1,8 @@
 import AppKit
+import UserNotifications
 
 struct Snapshot {
     let soc: Int
-    let mode: String
     let ongridPower: Double
     let offgridPower: Double
     let temperature: Double?
@@ -12,9 +12,14 @@ struct Snapshot {
 
     /// Net battery output in watts. Assumes positive values mean discharge.
     var netPower: Double { ongridPower + offgridPower }
+
+    /// Below this many watts the battery counts as idle.
+    private static let idleBand: Double = 20
+    var isCharging: Bool { netPower < -Self.idleBand }
+    var isDischarging: Bool { netPower > Self.idleBand }
 }
 
-struct HistoryPoint {
+struct HistoryPoint: Codable {
     let date: Date
     let soc: Int
 }
@@ -32,16 +37,28 @@ final class BatteryModel: ObservableObject {
     private static let pollInterval: TimeInterval = 60
     private static let staleAfter: TimeInterval = 180
     private static let historyLimit = 24 * 60
+    private static let lowSoc = 20
+    private static let historyURL = FileManager.default
+        .urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+        .appendingPathComponent("MarstekBar/history.json")
 
     private let client = MarstekClient()
     private let queue = DispatchQueue(label: "marstekbar.poll")
     private var timer: Timer?
     private var failures = 0 // touched only on `queue`
+    private var pollCount = 0 // touched only on `queue`
+    private var battery: [String: Any]? // last Bat.GetStatus reply, touched only on `queue`
     private var isPolling = false // touched only on the main thread
+    private var lowNotified = false // touched only on the main thread
 
     init() {
         host = UserDefaults.standard.string(forKey: Self.hostKey)
         deviceName = UserDefaults.standard.string(forKey: Self.deviceKey) ?? "Marstek"
+        if let url = Self.historyURL, let data = try? Data(contentsOf: url),
+           let saved = try? JSONDecoder().decode([HistoryPoint].self, from: data) {
+            let cutoff = Date().addingTimeInterval(-24 * 3600)
+            history = saved.filter { $0.date > cutoff }
+        }
         timer = Timer.scheduledTimer(withTimeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
             self?.refresh()
         }
@@ -62,15 +79,24 @@ final class BatteryModel: ObservableObject {
         return now.timeIntervalSince(snapshot.date) > Self.staleAfter
     }
 
-    var title: String {
+    var socText: String {
         guard let snapshot else { return "—" }
         return "\(snapshot.soc)%"
+    }
+
+    /// Menu bar title: charge level plus the power flow direction while the data is fresh.
+    var title: String {
+        guard let snapshot, !isStale else { return socText }
+        let watts = Int(abs(snapshot.netPower).rounded())
+        if snapshot.isCharging { return "\(socText) ↑\(watts)W" }
+        if snapshot.isDischarging { return "\(socText) ↓\(watts)W" }
+        return socText
     }
 
     var iconName: String {
         guard let snapshot else { return "bolt.slash" }
         if isStale { return "exclamationmark.triangle" }
-        if snapshot.netPower < -20 { return "battery.100percent.bolt" }
+        if snapshot.isCharging { return "battery.100percent.bolt" }
         switch snapshot.soc {
         case ..<13: return "battery.0percent"
         case ..<38: return "battery.25percent"
@@ -84,10 +110,10 @@ final class BatteryModel: ObservableObject {
     var estimate: String? {
         guard let snapshot, let remaining = snapshot.remainingWh else { return nil }
         let power = snapshot.netPower
-        if power > 20 {
+        if snapshot.isDischarging {
             return String(localized: "≈ \(Self.format(hours: remaining / power)) until empty")
         }
-        if power < -20, let rated = snapshot.ratedWh, rated > remaining {
+        if snapshot.isCharging, let rated = snapshot.ratedWh, rated > remaining {
             return String(localized: "≈ \(Self.format(hours: (rated - remaining) / -power)) until full")
         }
         return nil
@@ -129,18 +155,24 @@ final class BatteryModel: ObservableObject {
 
             let mode = try client.request("ES.GetMode", params: ["id": 0], hosts: [ip]).result
             // Keep requests spaced out: the device API gets unstable under load.
-            Thread.sleep(forTimeInterval: 1)
-            let battery = (try? client.request("Bat.GetStatus", params: ["id": 0], hosts: [ip]))?.result
+            // Bat.GetStatus is suspected of resetting some batteries when polled often: ask rarely.
+            if pollCount % 5 == 0 || battery == nil {
+                Thread.sleep(forTimeInterval: 1)
+                if let fresh = (try? client.request("Bat.GetStatus", params: ["id": 0], hosts: [ip]))?.result {
+                    battery = fresh
+                }
+            }
+            pollCount += 1
 
             guard let soc = Self.number(mode["bat_soc"]) ?? Self.number(battery?["soc"]) else {
                 throw MarstekError(message: String(localized: "The response has no state of charge"))
             }
             let snapshot = Snapshot(
                 soc: Int(soc.rounded()),
-                mode: mode["mode"] as? String ?? "—",
                 ongridPower: Self.number(mode["ongrid_power"]) ?? 0,
                 offgridPower: Self.number(mode["offgrid_power"]) ?? 0,
-                temperature: Self.number(battery?["bat_temp"]),
+                // Old BMS firmware reports the temperature multiplied by ten.
+                temperature: Self.number(battery?["bat_temp"]).map { $0 > 100 ? $0 / 10 : $0 },
                 remainingWh: Self.number(battery?["bat_capacity"]),
                 ratedWh: Self.number(battery?["rated_capacity"]),
                 date: Date())
@@ -170,6 +202,12 @@ final class BatteryModel: ObservableObject {
         if history.count > Self.historyLimit {
             history.removeFirst(history.count - Self.historyLimit)
         }
+        if let url = Self.historyURL, let data = try? JSONEncoder().encode(history) {
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                     withIntermediateDirectories: true)
+            try? data.write(to: url, options: .atomic)
+        }
+        notifyIfLow(snapshot)
         if self.host != host {
             self.host = host
             UserDefaults.standard.set(host, forKey: Self.hostKey)
@@ -177,6 +215,23 @@ final class BatteryModel: ObservableObject {
         if let deviceName, self.deviceName != deviceName {
             self.deviceName = deviceName
             UserDefaults.standard.set(deviceName, forKey: Self.deviceKey)
+        }
+    }
+
+    /// One notification per discharge below `lowSoc`; re-armed once the charge recovers.
+    private func notifyIfLow(_ snapshot: Snapshot) {
+        if snapshot.soc > Self.lowSoc + 5 { lowNotified = false }
+        // UNUserNotificationCenter crashes outside an app bundle (e.g. `swift run`).
+        guard snapshot.soc <= Self.lowSoc, snapshot.isDischarging, !lowNotified,
+              Bundle.main.bundleIdentifier != nil else { return }
+        lowNotified = true
+        let content = UNMutableNotificationContent()
+        content.title = deviceName
+        content.body = String(localized: "Battery is low: \(snapshot.soc)%")
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            guard granted else { return }
+            center.add(UNNotificationRequest(identifier: "low", content: content, trigger: nil))
         }
     }
 
