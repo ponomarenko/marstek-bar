@@ -27,7 +27,7 @@ final class MarstekClient {
             withJSONObject: ["id": id, "method": method, "params": params])
 
         let fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
-        guard fd >= 0 else { throw MarstekError(message: "Не вдалося відкрити сокет") }
+        guard fd >= 0 else { throw MarstekError(message: String(localized: "Could not open a socket")) }
         defer { close(fd) }
 
         var yes: Int32 = 1
@@ -66,8 +66,8 @@ final class MarstekClient {
             }
             // Nothing left the machine: no network, or Local Network access is denied.
             guard sent else {
-                throw MarstekError(message: "Немає доступу до локальної мережі. "
-                    + "Перевірте з'єднання та дозвіл у Системних параметрах")
+                throw MarstekError(message: String(localized:
+                    "No access to the local network. Check the connection and the permission in System Settings"))
             }
 
             let deadline = Date().addingTimeInterval(timeout)
@@ -89,13 +89,13 @@ final class MarstekClient {
                     return Reply(result: result, sender: Self.string(from: from))
                 }
                 if let error = object["error"] as? [String: Any] {
-                    let text = error["message"] as? String ?? "помилка пристрою"
+                    let text = error["message"] as? String ?? String(localized: "device error")
                     throw MarstekError(message: "\(method): \(text)")
                 }
                 // Anything else (e.g. our own broadcast echoed back) is ignored.
             }
         }
-        throw MarstekError(message: "Батарея не відповідає")
+        throw MarstekError(message: String(localized: "The battery is not responding"))
     }
 
     /// Limited broadcast plus the directed broadcast address of every active IPv4 interface.

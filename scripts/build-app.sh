@@ -9,12 +9,14 @@ APP="build/MarstekBar.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp .build/release/MarstekBar "$APP/Contents/MacOS/MarstekBar"
+cp -R Resources "$APP/Contents/Resources" # en.lproj, uk.lproj
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
     <key>CFBundleExecutable</key><string>MarstekBar</string>
     <key>CFBundleIdentifier</key><string>local.marstekbar</string>
     <key>CFBundleName</key><string>MarstekBar</string>

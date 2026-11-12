@@ -52,17 +52,17 @@ struct DetailView: View {
 
             if let snapshot = model.snapshot {
                 VStack(spacing: 4) {
-                    row("Режим", snapshot.mode)
-                    row("Резервний вихід", watts(snapshot.offgridPower))
-                    row("Мережевий порт", watts(snapshot.ongridPower))
+                    row("Mode", snapshot.mode)
+                    row("Backup output", watts(snapshot.offgridPower))
+                    row("Grid port", watts(snapshot.ongridPower))
                     if let remaining = snapshot.remainingWh, let rated = snapshot.ratedWh {
-                        row("Енергія", "\(Int(remaining)) / \(Int(rated)) Вт·год")
+                        row("Energy", String(localized: "\(Int(remaining)) / \(Int(rated)) Wh"))
                     }
                     if let temperature = snapshot.temperature {
-                        row("Температура", String(format: "%.0f °C", temperature))
+                        row("Temperature", String(format: "%.0f °C", temperature))
                     }
                     if let estimate = model.estimate {
-                        row("Прогноз", estimate)
+                        row("Estimate", estimate)
                     }
                 }
 
@@ -76,7 +76,7 @@ struct DetailView: View {
                     .font(.caption)
                     .foregroundStyle(model.isStale ? Color.orange : Color.secondary)
             } else {
-                Text(model.lastError ?? "Шукаю батарею…")
+                Text(model.lastError ?? String(localized: "Searching for the battery…"))
                     .foregroundStyle(.secondary)
             }
 
@@ -86,7 +86,7 @@ struct DetailView: View {
 
             Divider()
 
-            Toggle("Запускати під час входу", isOn: Binding(
+            Toggle("Launch at login", isOn: Binding(
                 get: { loginItem.isEnabled },
                 set: { loginItem.set($0) }))
             if let loginError = loginItem.error {
@@ -94,16 +94,16 @@ struct DetailView: View {
             }
 
             HStack {
-                Button("Оновити") { model.refresh() }
+                Button("Refresh") { model.refresh() }
                 Spacer()
-                Button("Вийти") { NSApplication.shared.terminate(nil) }
+                Button("Quit") { NSApplication.shared.terminate(nil) }
             }
         }
         .padding(14)
         .frame(width: 290)
     }
 
-    private func row(_ title: String, _ value: String) -> some View {
+    private func row(_ title: LocalizedStringKey, _ value: String) -> some View {
         HStack {
             Text(title).foregroundStyle(.secondary)
             Spacer()
@@ -112,13 +112,15 @@ struct DetailView: View {
     }
 
     private func watts(_ value: Double) -> String {
-        "\(Int(value.rounded())) Вт"
+        String(localized: "\(Int(value.rounded())) W")
     }
 
     private func statusLine(for snapshot: Snapshot) -> String {
         let time = snapshot.date.formatted(date: .omitted, time: .shortened)
-        let prefix = model.isStale ? "Дані застаріли, останнє оновлення" : "Оновлено"
-        return "\(prefix) \(time) · \(model.host ?? "—")"
+        let status = model.isStale
+            ? String(localized: "Stale data, last updated \(time)")
+            : String(localized: "Updated \(time)")
+        return "\(status) · \(model.host ?? "—")"
     }
 }
 

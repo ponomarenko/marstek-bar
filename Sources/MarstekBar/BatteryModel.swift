@@ -85,10 +85,10 @@ final class BatteryModel: ObservableObject {
         guard let snapshot, let remaining = snapshot.remainingWh else { return nil }
         let power = snapshot.netPower
         if power > 20 {
-            return "≈ \(Self.format(hours: remaining / power)) до розряду"
+            return String(localized: "≈ \(Self.format(hours: remaining / power)) until empty")
         }
         if power < -20, let rated = snapshot.ratedWh, rated > remaining {
-            return "≈ \(Self.format(hours: (rated - remaining) / -power)) до повного"
+            return String(localized: "≈ \(Self.format(hours: (rated - remaining) / -power)) until full")
         }
         return nil
     }
@@ -124,7 +124,7 @@ final class BatteryModel: ObservableObject {
                 }
             }
             guard let ip = target, !ip.isEmpty else {
-                throw MarstekError(message: "Батарею не знайдено в мережі")
+                throw MarstekError(message: String(localized: "Battery not found on the network"))
             }
 
             let mode = try client.request("ES.GetMode", params: ["id": 0], hosts: [ip]).result
@@ -133,7 +133,7 @@ final class BatteryModel: ObservableObject {
             let battery = (try? client.request("Bat.GetStatus", params: ["id": 0], hosts: [ip]))?.result
 
             guard let soc = Self.number(mode["bat_soc"]) ?? Self.number(battery?["soc"]) else {
-                throw MarstekError(message: "У відповіді немає рівня заряду")
+                throw MarstekError(message: String(localized: "The response has no state of charge"))
             }
             let snapshot = Snapshot(
                 soc: Int(soc.rounded()),
@@ -188,6 +188,8 @@ final class BatteryModel: ObservableObject {
 
     private static func format(hours: Double) -> String {
         let minutes = Int((hours * 60).rounded())
-        return minutes >= 60 ? "\(minutes / 60) год \(minutes % 60) хв" : "\(minutes) хв"
+        return minutes >= 60
+            ? String(localized: "\(minutes / 60) h \(minutes % 60) min")
+            : String(localized: "\(minutes) min")
     }
 }

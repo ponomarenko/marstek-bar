@@ -30,6 +30,8 @@ On first launch macOS asks for Local Network access — allow it.
 
 ## Notes
 
+- The UI is in English or Ukrainian, following the system language. Translations live
+  in `Resources/uk.lproj`; English strings are the keys used in the code.
 - Net battery power is computed as `ongrid_power + offgrid_power`, assuming positive
   values mean discharge. Verify the sign while the battery is charging.
 - History is kept in memory only (last 24 hours).
