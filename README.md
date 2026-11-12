@@ -11,6 +11,8 @@ remaining energy and a 24-hour history. It talks to the battery directly over th
 **Marstek Local Open API** (JSON over UDP), so it needs no cloud account, no Home
 Assistant and no internet connection.
 
+![MarstekBar popover with charge level, power flow and charge history](docs/screenshot.webp)
+
 ## Features
 
 - **Charge level in the menu bar**, with the power flow next to it:
