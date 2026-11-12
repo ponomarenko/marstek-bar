@@ -14,6 +14,7 @@
 "%lld min" = "%lld хв";
 "≈ %@ until empty" = "≈ %@ до розряду";
 "≈ %@ until full" = "≈ %@ до повного";
+"Charge history" = "Історія заряду";
 "Updated %@" = "Оновлено %@";
 "Stale data, last updated %@" = "Дані застаріли, останнє оновлення %@";
 "Searching for the battery…" = "Шукаю батарею…";

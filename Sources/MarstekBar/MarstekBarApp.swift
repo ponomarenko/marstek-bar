@@ -1,3 +1,4 @@
+import Charts
 import ServiceManagement
 import SwiftUI
 
@@ -66,17 +67,32 @@ struct DetailView: View {
                     }
                 }
 
-                if let first = model.history.first, let last = model.history.last, model.history.count > 1 {
-                    Sparkline(points: model.history)
-                        .stroke(Color.accentColor, lineWidth: 1.5)
-                        .frame(height: 36)
-                    HStack {
-                        Text(first.date.formatted(date: .omitted, time: .shortened))
-                        Spacer()
-                        Text(last.date.formatted(date: .omitted, time: .shortened))
+                if model.history.count > 1 {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Charge history").font(.caption2).foregroundStyle(.secondary)
+                        Chart(Array(model.history.enumerated()), id: \.offset) { _, point in
+                            AreaMark(x: .value("Time", point.date), y: .value("Charge", point.soc))
+                                .foregroundStyle(Color.accentColor.opacity(0.25))
+                            LineMark(x: .value("Time", point.date), y: .value("Charge", point.soc))
+                                .foregroundStyle(Color.accentColor)
+                        }
+                        .chartYScale(domain: 0...100)
+                        // Room on the right so the last time label is not cut off at the edge.
+                        .chartXScale(range: .plotDimension(endPadding: 14))
+                        .chartYAxis {
+                            AxisMarks(position: .leading, values: [0, 50, 100]) { value in
+                                AxisGridLine()
+                                AxisValueLabel { Text("\(value.as(Int.self) ?? 0)%") }
+                            }
+                        }
+                        .chartXAxis {
+                            AxisMarks(values: .automatic(desiredCount: 3)) {
+                                AxisValueLabel(format: .dateTime.hour().minute())
+                            }
+                        }
+                        .font(.caption2)
+                        .frame(height: 64)
                     }
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
                 }
 
                 Text(statusLine(for: snapshot))
@@ -136,24 +152,6 @@ struct DetailView: View {
             ? String(localized: "Stale data, last updated \(time)")
             : String(localized: "Updated \(time)")
         return "\(status) · \(model.host ?? "—")"
-    }
-}
-
-/// State-of-charge history drawn on a fixed 0–100 scale, spaced by time so gaps stay visible.
-struct Sparkline: Shape {
-    let points: [HistoryPoint]
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        guard let start = points.first?.date, let end = points.last?.date, end > start else { return path }
-        let span = end.timeIntervalSince(start)
-        for (index, item) in points.enumerated() {
-            let clamped = Double(min(max(item.soc, 0), 100))
-            let point = CGPoint(x: rect.minX + rect.width * CGFloat(item.date.timeIntervalSince(start) / span),
-                                y: rect.maxY - rect.height * CGFloat(clamped / 100))
-            if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
-        }
-        return path
     }
 }
 
