@@ -22,6 +22,8 @@ struct Snapshot {
 struct HistoryPoint: Codable {
     let date: Date
     let soc: Int
+    /// Net battery output in watts; missing in history saved by older versions.
+    var power: Double?
 }
 
 final class BatteryModel: ObservableObject {
@@ -38,6 +40,8 @@ final class BatteryModel: ObservableObject {
     private static let staleAfter: TimeInterval = 180
     private static let historyLimit = 24 * 60
     private static let lowSoc = 20
+    private static let hotTemperature: Double = 50
+    private static let offlineAfterFailures = 10 // about ten minutes of failed polls
     private static let historyURL = FileManager.default
         .urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
         .appendingPathComponent("MarstekBar/history.json")
@@ -49,9 +53,13 @@ final class BatteryModel: ObservableObject {
     private var pollCount = 0 // touched only on `queue`
     private var battery: [String: Any]? // last Bat.GetStatus reply, touched only on `queue`
     private var isPolling = false // touched only on the main thread
-    private var lowNotified = false // touched only on the main thread
+    private var notified: Set<String> = [] // alerts already shown, touched only on the main thread
 
     init() {
+        #if DEBUG
+        Analytics.selfCheck()
+        UsageProfiles.selfCheck()
+        #endif
         host = UserDefaults.standard.string(forKey: Self.hostKey)
         deviceName = UserDefaults.standard.string(forKey: Self.deviceKey) ?? "Marstek"
         if let url = Self.historyURL, let data = try? Data(contentsOf: url),
@@ -106,17 +114,31 @@ final class BatteryModel: ObservableObject {
         }
     }
 
-    /// Human readable estimate of time to empty (discharging) or to full (charging).
-    var estimate: String? {
+    /// Estimated time to empty (discharging) or to full (charging).
+    var estimate: (untilFull: Bool, time: String)? {
         guard let snapshot, let remaining = snapshot.remainingWh else { return nil }
         let power = snapshot.netPower
         if snapshot.isDischarging {
-            return String(localized: "≈ \(Self.format(hours: remaining / power)) until empty")
+            return (false, "≈ " + Self.format(hours: remaining / power))
         }
         if snapshot.isCharging, let rated = snapshot.ratedWh, rated > remaining {
-            return String(localized: "≈ \(Self.format(hours: (rated - remaining) / -power)) until full")
+            return (true, "≈ " + Self.format(hours: (rated - remaining) / -power))
         }
         return nil
+    }
+
+    /// Problems worth the user's attention; shown in the popover and sent as notifications.
+    var warnings: [(id: String, text: String)] {
+        guard let snapshot, !isStale else { return [] }
+        var result: [(id: String, text: String)] = []
+        if let temperature = snapshot.temperature, temperature >= Self.hotTemperature {
+            result.append(("temperature", String(localized: "High temperature: \(Int(temperature.rounded())) °C")))
+        }
+        if Analytics.isSustained(history, now: snapshot.date) {
+            result.append(("load", String(localized:
+                "Load above \(Int(Analytics.sustainedWatts)) W for over \(Int(Analytics.sustainedFor / 3600)) h")))
+        }
+        return result
     }
 
     // MARK: - Polling
@@ -184,10 +206,13 @@ final class BatteryModel: ObservableObject {
         } catch {
             failures += 1
             let text = error.localizedDescription
+            let offline = failures >= Self.offlineAfterFailures
             DispatchQueue.main.async {
                 self.isPolling = false
                 self.lastError = text
                 self.now = Date()
+                self.alert("offline", active: offline, cleared: false,
+                           body: String(localized: "No connection to the battery: \(text)"))
             }
         }
     }
@@ -198,7 +223,7 @@ final class BatteryModel: ObservableObject {
         lastError = nil
         now = Date()
 
-        history.append(HistoryPoint(date: snapshot.date, soc: snapshot.soc))
+        history.append(HistoryPoint(date: snapshot.date, soc: snapshot.soc, power: snapshot.netPower))
         if history.count > Self.historyLimit {
             history.removeFirst(history.count - Self.historyLimit)
         }
@@ -207,7 +232,15 @@ final class BatteryModel: ObservableObject {
                                                      withIntermediateDirectories: true)
             try? data.write(to: url, options: .atomic)
         }
-        notifyIfLow(snapshot)
+        alert("low", active: snapshot.soc <= Self.lowSoc && snapshot.isDischarging,
+              cleared: snapshot.soc > Self.lowSoc + 5,
+              body: String(localized: "Battery is low: \(snapshot.soc)%"))
+        let active = warnings
+        for id in ["temperature", "load"] {
+            let text = active.first { $0.id == id }?.text
+            alert(id, active: text != nil, cleared: text == nil, body: text ?? "")
+        }
+        notified.remove("offline")
         if self.host != host {
             self.host = host
             UserDefaults.standard.set(host, forKey: Self.hostKey)
@@ -218,20 +251,19 @@ final class BatteryModel: ObservableObject {
         }
     }
 
-    /// One notification per discharge below `lowSoc`; re-armed once the charge recovers.
-    private func notifyIfLow(_ snapshot: Snapshot) {
-        if snapshot.soc > Self.lowSoc + 5 { lowNotified = false }
+    /// One notification per episode: fires when `active`, re-armed once `cleared`.
+    private func alert(_ id: String, active: Bool, cleared: Bool, body: String) {
+        if cleared { notified.remove(id) }
         // UNUserNotificationCenter crashes outside an app bundle (e.g. `swift run`).
-        guard snapshot.soc <= Self.lowSoc, snapshot.isDischarging, !lowNotified,
-              Bundle.main.bundleIdentifier != nil else { return }
-        lowNotified = true
+        guard active, !notified.contains(id), Bundle.main.bundleIdentifier != nil else { return }
+        notified.insert(id)
         let content = UNMutableNotificationContent()
         content.title = deviceName
-        content.body = String(localized: "Battery is low: \(snapshot.soc)%")
+        content.body = body
         let center = UNUserNotificationCenter.current()
         center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
             guard granted else { return }
-            center.add(UNNotificationRequest(identifier: "low", content: content, trigger: nil))
+            center.add(UNNotificationRequest(identifier: id, content: content, trigger: nil))
         }
     }
 
@@ -241,7 +273,7 @@ final class BatteryModel: ObservableObject {
         (value as? NSNumber)?.doubleValue
     }
 
-    private static func format(hours: Double) -> String {
+    static func format(hours: Double) -> String {
         let minutes = Int((hours * 60).rounded())
         return minutes >= 60
             ? String(localized: "\(minutes / 60) h \(minutes % 60) min")

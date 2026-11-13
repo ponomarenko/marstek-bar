@@ -11,7 +11,7 @@ remaining energy and a 24-hour history. It talks to the battery directly over th
 **Marstek Local Open API** (JSON over UDP), so it needs no cloud account, no Home
 Assistant and no internet connection.
 
-![MarstekBar popover with charge level, power flow and charge history](docs/screenshot.webp)
+![MarstekBar popover with charge level, power flow, battery health, charge history and runtime forecast](docs/screenshot.webp)
 
 ## Features
 
@@ -20,7 +20,11 @@ Assistant and no internet connection.
 - **Details on click**: status, backup output and grid port power, remaining and
   rated energy, temperature, and an estimate of the time until empty or full.
 - **24-hour charge history** that survives restarts.
-- **Low-battery notification** when the charge drops to 20% while discharging.
+- **Heuristic analysis**: average load, energy used in 24 hours, an estimated
+  battery health, and a [runtime forecast](#runtime-forecast) for three ways of
+  living on the battery: economy, moderate use, and no saving at all.
+- **Notifications** for a low charge (20% while discharging), a high temperature,
+  a sustained heavy load, and a lost connection.
 - **Automatic discovery** of the battery on the local network. The address is cached
   and found again if it changes.
 - **Gentle polling**, once a minute, because the device API is fragile.
@@ -58,6 +62,39 @@ open build/MarstekBar.app
 On first launch macOS asks for **Local Network** access. Allow it, otherwise the app
 cannot reach the battery. To keep the app, move `build/MarstekBar.app` to
 `/Applications` and turn on **Launch at login** in its menu.
+
+### Rebuild and restart
+
+After pulling or changing the code, quit the running app, rebuild it and start it
+again:
+
+```sh
+pkill -x MarstekBar; ./scripts/build-app.sh && open build/MarstekBar.app
+```
+
+Quit first: the build script replaces `build/MarstekBar.app`. If you keep the app
+in `/Applications`, copy the new build there before opening it. The charge history
+survives the restart.
+
+## Runtime forecast
+
+The popover shows how long the remaining energy lasts in three scenarios:
+
+- **Economy**: only what is needed.
+- **Moderate use**: everyday life, with the heavy appliances kept short.
+- **No saving**: nothing is held back.
+
+Each scenario is a list of appliances with the power they draw, how long one use
+lasts and how many times a day they are used. A kettle counts as 2000 W for the
+three minutes a boil takes, a few times a day, not as 2000 W around the clock.
+The energy of such a day, spread over 24 hours, gives the average load of the
+scenario, and the remaining energy divided by it gives the runtime. Hover over a
+row to see what the scenario includes.
+
+The table lives in
+[UsageProfiles.swift](Sources/MarstekBar/UsageProfiles.swift) and holds typical
+household averages. If your numbers differ or an appliance is missing, edit the
+table and open a pull request.
 
 ## How it works
 
