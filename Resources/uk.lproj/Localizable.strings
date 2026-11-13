@@ -1,5 +1,5 @@
-"Charging %lld W" = "Заряджається %lld Вт";
-"Discharging %lld W" = "Розряджається %lld Вт";
+"Charging %@" = "Заряджається %@";
+"Discharging %@" = "Розряджається %@";
 "Idle" = "Простій";
 "Battery is low: %lld%%" = "Низький заряд батареї: %lld%%";
 "Backup output" = "Резервний вихід";
@@ -8,6 +8,7 @@
 "Temperature" = "Температура";
 "%lld / %lld Wh" = "%lld / %lld Вт·год";
 "%lld W" = "%lld Вт";
+"%@ kW" = "%@ кВт";
 "%lld h %lld min" = "%lld год %lld хв";
 "%lld min" = "%lld хв";
 "Estimate" = "Прогноз";
@@ -48,7 +49,6 @@
 "Coffee machine" = "Кавомашина";
 "Microwave" = "Мікрохвильовка";
 "Kettle" = "Чайник";
-"%lld W · %@" = "%lld Вт · %@";
 "High temperature: %lld °C" = "Висока температура: %lld °C";
 "Load above %lld W for over %lld h" = "Навантаження понад %lld Вт уже більше %lld год";
 "No connection to the battery: %@" = "Немає зв'язку з батареєю: %@";

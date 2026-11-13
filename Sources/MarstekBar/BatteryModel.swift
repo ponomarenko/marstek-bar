@@ -65,7 +65,10 @@ final class BatteryModel: ObservableObject {
         if let url = Self.historyURL, let data = try? Data(contentsOf: url),
            let saved = try? JSONDecoder().decode([HistoryPoint].self, from: data) {
             let cutoff = Date().addingTimeInterval(-24 * 3600)
-            history = saved.filter { $0.date > cutoff }
+            history = saved.filter { $0.date > cutoff }.map {
+                // Repairs points saved before the wrapped charging power was fixed.
+                HistoryPoint(date: $0.date, soc: $0.soc, power: $0.power.map(Self.signed16))
+            }
         }
         timer = Timer.scheduledTimer(withTimeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
             self?.refresh()
@@ -95,9 +98,11 @@ final class BatteryModel: ObservableObject {
     /// Menu bar title: charge level plus the power flow direction while the data is fresh.
     var title: String {
         guard let snapshot, !isStale else { return socText }
-        let watts = Int(abs(snapshot.netPower).rounded())
-        if snapshot.isCharging { return "\(socText) ↑\(watts)W" }
-        if snapshot.isDischarging { return "\(socText) ↓\(watts)W" }
+        let watts = abs(snapshot.netPower).rounded()
+        // Unlocalized on purpose: the menu bar is short on space.
+        let power = watts >= 1000 ? String(format: "%.2f kW", watts / 1000) : "\(Int(watts)) W"
+        if snapshot.isCharging { return "\(socText) ↑ \(power)" }
+        if snapshot.isDischarging { return "\(socText) ↓ \(power)" }
         return socText
     }
 
@@ -191,8 +196,8 @@ final class BatteryModel: ObservableObject {
             }
             let snapshot = Snapshot(
                 soc: Int(soc.rounded()),
-                ongridPower: Self.number(mode["ongrid_power"]) ?? 0,
-                offgridPower: Self.number(mode["offgrid_power"]) ?? 0,
+                ongridPower: Self.signed16(Self.number(mode["ongrid_power"]) ?? 0),
+                offgridPower: Self.signed16(Self.number(mode["offgrid_power"]) ?? 0),
                 // Old BMS firmware reports the temperature multiplied by ten.
                 temperature: Self.number(battery?["bat_temp"]).map { $0 > 100 ? $0 / 10 : $0 },
                 remainingWh: Self.number(battery?["bat_capacity"]),
@@ -271,6 +276,19 @@ final class BatteryModel: ObservableObject {
 
     private static func number(_ value: Any?) -> Double? {
         (value as? NSNumber)?.doubleValue
+    }
+
+    /// Some firmware sends negative (charging) power as an unsigned 16-bit number: -1204 W arrives as 64332.
+    static func signed16(_ watts: Double) -> Double {
+        watts > 32767 ? watts - 65536 : watts
+    }
+
+    /// Watts below a kilowatt, kilowatts with two decimals from there on; keeps the sign.
+    static func format(watts: Double) -> String {
+        let rounded = watts.rounded()
+        return abs(rounded) >= 1000
+            ? String(localized: "\(String(format: "%.2f", rounded / 1000)) kW")
+            : String(localized: "\(Int(rounded)) W")
     }
 
     static func format(hours: Double) -> String {

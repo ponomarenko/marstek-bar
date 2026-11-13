@@ -16,7 +16,7 @@ Assistant and no internet connection.
 ## Features
 
 - **Charge level in the menu bar**, with the power flow next to it:
-  `78% ↑350W` while charging, `78% ↓350W` while discharging.
+  `78% ↑ 350 W` while charging, `78% ↓ 350 W` while discharging (`↑ 1.19 kW` from a kilowatt up).
 - **Details on click**: status, backup output and grid port power, remaining and
   rated energy, temperature, and an estimate of the time until empty or full.
 - **24-hour charge history** that survives restarts.

@@ -140,7 +140,7 @@ struct DetailView: View {
                             let look = look(of: scenario)
                             VStack(spacing: 3) {
                                 row(look.icon, look.title, String(localized:
-                                    "\(Int(watts.rounded())) W · \(BatteryModel.format(hours: remaining / watts))"))
+                                    "\(BatteryModel.format(watts: watts)) · \(BatteryModel.format(hours: remaining / watts))"))
                                 ProgressView(value: min(remaining / watts, longest), total: longest)
                                     .tint(look.color)
                                     .accessibilityHidden(true)
@@ -217,9 +217,9 @@ struct DetailView: View {
     }
 
     private func state(of snapshot: Snapshot) -> String {
-        let power = Int(abs(snapshot.netPower).rounded())
-        if snapshot.isCharging { return String(localized: "Charging \(power) W") }
-        if snapshot.isDischarging { return String(localized: "Discharging \(power) W") }
+        let power = BatteryModel.format(watts: abs(snapshot.netPower))
+        if snapshot.isCharging { return String(localized: "Charging \(power)") }
+        if snapshot.isDischarging { return String(localized: "Discharging \(power)") }
         return String(localized: "Idle")
     }
 
@@ -244,7 +244,7 @@ struct DetailView: View {
     }
 
     private func watts(_ value: Double) -> String {
-        String(localized: "\(Int(value.rounded())) W")
+        BatteryModel.format(watts: value)
     }
 
     private func statusLine(for snapshot: Snapshot) -> String {

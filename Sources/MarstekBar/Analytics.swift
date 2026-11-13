@@ -51,6 +51,9 @@ enum Analytics {
             }
         }
         let mixed = points([(80, 400), (78, 200), (78, -500), (90, 5), (85, nil)])
+        assert(BatteryModel.signed16(64332) == -1204 && BatteryModel.signed16(800) == 800)
+        assert(BatteryModel.format(watts: 1194).hasPrefix("1.19") && BatteryModel.format(watts: -999.6).hasPrefix("-1.00"))
+        assert(BatteryModel.format(watts: 999.4).hasPrefix("999"))
         assert(averageLoad(mixed) == 300)
         assert(utilization(mixed) == 0.07) // drops 2 + 5, the recharge is ignored
         assert(averageLoad(points([(50, nil)])) == nil)
