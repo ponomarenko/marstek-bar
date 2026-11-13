@@ -110,8 +110,8 @@ struct DetailView: View {
                                 .foregroundStyle(Color.accentColor)
                         }
                         .chartYScale(domain: 0...100)
-                        // Room on the right so the last time label is not cut off at the edge.
-                        .chartXScale(range: .plotDimension(endPadding: 14))
+                        // Room on the right for half of the last time label, which is centred on its tick.
+                        .chartXScale(range: .plotDimension(endPadding: 20))
                         .chartYAxis {
                             AxisMarks(position: .leading, values: [0, 50, 100]) { value in
                                 AxisGridLine()
@@ -120,7 +120,8 @@ struct DetailView: View {
                         }
                         .chartXAxis {
                             AxisMarks(values: .automatic(desiredCount: 3)) {
-                                AxisValueLabel(format: .dateTime.hour().minute())
+                                // Centred: a label that starts at its tick is cut off near the right edge.
+                                AxisValueLabel(format: .dateTime.hour().minute(), anchor: .top)
                             }
                         }
                         .font(.caption2)
